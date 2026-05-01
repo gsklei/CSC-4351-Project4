@@ -1,0 +1,7 @@
+fun int main() {
+    var int x = 5;
+    if (x) {
+        printf(x);
+    }
+    return 0;
+}

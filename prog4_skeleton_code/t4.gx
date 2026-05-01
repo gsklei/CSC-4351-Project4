@@ -1,0 +1,8 @@
+fun int add() {
+    return 15;
+}
+fun int main() {
+    var int x = add();
+    printf(x);
+    return 0;
+}

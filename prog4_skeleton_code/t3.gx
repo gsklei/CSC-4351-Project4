@@ -1,0 +1,8 @@
+fun int main() {
+    var int x = 0;
+    while (x < 5) {
+        x = x + 1;
+    }
+    printf(x);
+    return 0;
+}

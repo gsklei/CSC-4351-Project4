@@ -1,0 +1,7 @@
+fun int main() {
+    var int x = 5;
+    var int y = 10;
+    var int z = x + y;
+    printf(z);
+    return 0;
+}
