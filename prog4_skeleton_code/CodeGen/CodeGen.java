@@ -2,50 +2,21 @@ package CodeGen;
 
 import java.util.*;
 
-/**
- * CodeGen: walks the Geaux AST and produces a GOTO IR Program.
- *
- * FIELD NAME ASSUMPTIONS — adjust if your Absyn fields differ:
- *   VarDecl   : type (Absyn.Type), name (String), init (Absyn.Exp)
- *   FunDecl   : result (Absyn.Type), name (String), params (Absyn.DeclList), body (Absyn.Stmt)
- *   BinOp     : left (Absyn.Exp), op (String), right (Absyn.Exp)
- *   UnaryExp  : op (String), exp (Absyn.Exp)
- *   AssignExp : lhs (Absyn.Exp), rhs (Absyn.Exp)
- *   WhileStmt : test (Absyn.Exp), body (Absyn.Stmt)
- *   IfStmt    : test (Absyn.Exp), thenStmt (Absyn.Stmt), elseStmt (Absyn.Stmt)
- *   CompStmt  : decls (Absyn.DeclList), stmts (Absyn.StmtList)
- *   ReturnStmt: exp (Absyn.Exp)
- *   ExprStmt  : exp (Absyn.Exp)
- *   ArrayExp  : var (Absyn.Exp base), dims (Absyn.ExpList indices)
- *   FunExp    : func (Absyn.Exp), args (Absyn.ExpList)
- *   ID        : name (String)
- *   DecLit    : value (int)
- *   StrLit    : value (String)
- *   Absyn.Type: name (String typeName), dims (int array dimensions)
- *   DeclList/StmtList/ExpList: list (ArrayList)  [confirmed from bytecode]
- */
 public class CodeGen {
 
     private final Program prog = new Program();
     private Function currentFunc;
 
-    // Scope stack: maps original name -> unique IR Var
     private final Deque<HashMap<String, Var>> scopeStack = new ArrayDeque<>();
 
-    // Top-level VarDecl inits land here, called from user's main
     private final Function globalInitFunc;
 
-    // Break-target stack: exit labels for enclosing while loops
     private final Deque<String> breakTargets = new ArrayDeque<>();
 
     public CodeGen() {
         globalInitFunc = new Function("__geaux_globals__", "int");
         prog.funcs.add(globalInitFunc);
     }
-
-    // =========================================================================
-    // Entry point
-    // =========================================================================
 
     public Program generate(Absyn.Absyn ast) {
         Absyn.DeclList topLevel = (Absyn.DeclList) ast;
@@ -63,10 +34,6 @@ public class CodeGen {
         return prog;
     }
 
-    // =========================================================================
-    // Top-level declarations
-    // =========================================================================
-
     private void genTopLevelDecl(Absyn.Decl d) {
         if (d instanceof Absyn.FunDecl) {
             genFunDecl((Absyn.FunDecl) d);
@@ -76,12 +43,7 @@ public class CodeGen {
             genVarDecl((Absyn.VarDecl) d);
             currentFunc = saved;
         }
-        // StructDecl, UnionDecl, Typedef: no IR needed
     }
-
-    // =========================================================================
-    // Declarations
-    // =========================================================================
 
     private void genFunDecl(Absyn.FunDecl fd) {
         String retStr = mapReturnType(fd.result);
@@ -92,7 +54,6 @@ public class CodeGen {
         currentFunc = f;
         pushScope();
 
-        // Parameters become globally-declared vars (all vars are global in GOTO IR)
         if (fd.params != null) {
             for (Object obj : fd.params.list) {
                 Absyn.Decl param = (Absyn.Decl) obj;
@@ -100,12 +61,9 @@ public class CodeGen {
                     Absyn.VarDecl vd = (Absyn.VarDecl) param;
                     registerVar(vd.name, mapType(vd.type));
                 }
-                // If your compiler uses a separate Parameter class, add it here:
-                // else if (param instanceof Absyn.Parameter) { ... }
             }
         }
 
-        // Inject global-init call at the start of user's main
         if (fd.name.equals("main")) {
             Var tmp = freshGlobal(Type.INT);
             currentFunc.instr.add(new Assign(tmp, new Call("__geaux_globals__", Type.INT)));
@@ -122,7 +80,6 @@ public class CodeGen {
         Var v = registerVar(vd.name, irType);
 
         if (irType == Type.INTARRAY) {
-            // Always allocate; initializer may resize
             currentFunc.instr.add(new ArrayAlloc(v, new Literal(0, Type.INT)));
             if (vd.init != null && !(vd.init instanceof Absyn.EmptyExp)) {
                 genArrayInit(v, vd.init);
@@ -135,17 +92,13 @@ public class CodeGen {
         return v;
     }
 
-    // =========================================================================
-    // Statements
-    // =========================================================================
-
     private void genStmt(Absyn.Stmt s) {
         if      (s instanceof Absyn.CompStmt)   genCompStmt((Absyn.CompStmt) s);
         else if (s instanceof Absyn.IfStmt)     genIfStmt((Absyn.IfStmt) s);
         else if (s instanceof Absyn.WhileStmt)  genWhileStmt((Absyn.WhileStmt) s);
         else if (s instanceof Absyn.ReturnStmt) genReturnStmt((Absyn.ReturnStmt) s);
         else if (s instanceof Absyn.ExprStmt)   genExprStmt((Absyn.ExprStmt) s);
-        else if (s instanceof Absyn.EmptyStmt)  { /* nothing */ }
+        else if (s instanceof Absyn.EmptyStmt)  {}
         else if (s instanceof Absyn.BreakStmt)  genBreakStmt();
         else throw new RuntimeException("Unknown stmt: " + s.getClass().getSimpleName());
     }
@@ -226,7 +179,6 @@ public class CodeGen {
     private void genExprStmt(Absyn.ExprStmt es) {
         if (es.exp == null || es.exp instanceof Absyn.EmptyExp) return;
 
-        // Builtin function calls used as statements
         if (es.exp instanceof Absyn.FunExp) {
             Absyn.FunExp fe = (Absyn.FunExp) es.exp;
             if (fe.func instanceof Absyn.ID) {
@@ -235,23 +187,17 @@ public class CodeGen {
             }
         }
 
-        // Assignment expressions
         if (es.exp instanceof Absyn.AssignExp) {
             genAssignExp((Absyn.AssignExp) es.exp);
             return;
         }
 
-        // General expression: evaluate into temp (side effects matter)
         IRExpr val = genExp(es.exp);
         if (!(val instanceof Literal)) {
             Var tmp = freshGlobal(val.type);
             currentFunc.instr.add(new Assign(tmp, val));
         }
     }
-
-    // =========================================================================
-    // Expressions — each returns an IRExpr
-    // =========================================================================
 
     private IRExpr genExp(Absyn.Exp e) {
         if (e instanceof Absyn.BinOp)     return genBinOp((Absyn.BinOp) e);
@@ -283,7 +229,6 @@ public class CodeGen {
         IRExpr rval = genExp(ae.rhs);
 
         if (ae.lhs instanceof Absyn.ArrayExp) {
-            // Array store: arr[i] = rval
             Absyn.ArrayExp arrExp = (Absyn.ArrayExp) ae.lhs;
             IRExpr baseExpr = genExp(arrExp.var);
             if (!(baseExpr instanceof Var))
@@ -291,7 +236,6 @@ public class CodeGen {
             Var arrVar = (Var) baseExpr;
             IRExpr idx = genExp((Absyn.Exp) arrExp.dims.list.get(0));
 
-            // Dynamic resize: realloc to idx+1 before storing
             Var newSize = freshGlobal(Type.INT);
             currentFunc.instr.add(new Assign(newSize,
                 new BinOp("+", idx, new Literal(1, Type.INT), Type.INT)));
@@ -335,7 +279,6 @@ public class CodeGen {
                 return new Literal(0, Type.INT);
 
             default:
-                // User-defined function call (all vars global, so no args in IR)
                 return new Call(fname, Type.INT);
         }
     }
@@ -356,10 +299,6 @@ public class CodeGen {
         return new ArrayLoad(arrVar, idx, Type.INT);
     }
 
-    // =========================================================================
-    // Builtin handling
-    // =========================================================================
-
     @SuppressWarnings("unchecked")
     private boolean tryGenBuiltin(String fname, Absyn.FunExp fe) {
         switch (fname) {
@@ -372,7 +311,6 @@ public class CodeGen {
                     fmt = ((Absyn.StrLit) fe.args.list.get(0)).value;
                     startIdx = 1;
                 } else {
-                    // Auto-build format string from arg types
                     StringBuilder sb = new StringBuilder();
                     for (Object obj : fe.args.list) {
                         IRExpr arg = genExp((Absyn.Exp) obj);
@@ -418,19 +356,10 @@ public class CodeGen {
         }
     }
 
-    // =========================================================================
-    // Array initialization helper
-    // =========================================================================
-
     private void genArrayInit(Var arrVar, Absyn.Exp initExp) {
-        // Array initializer: treat as a size or pointer expression and assign directly.
         IRExpr val = genExp(initExp);
         currentFunc.instr.add(new Assign(arrVar, val));
     }
-
-    // =========================================================================
-    // Type mapping
-    // =========================================================================
 
     private Type mapType(Absyn.Type t) {
         if (t == null) return Type.INT;
@@ -450,10 +379,6 @@ public class CodeGen {
             default:       return "int";
         }
     }
-
-    // =========================================================================
-    // Scope management
-    // =========================================================================
 
     private void pushScope() { scopeStack.push(new HashMap<>()); }
     private void popScope()  { scopeStack.pop(); }

@@ -90,7 +90,6 @@ class Builtin extends IRStmt {}
 
  * More explanation of this problem can be found in the Var comment.
  */
-// Program is declared in Program.java (must be public in its own file)
 
 /**
  * Represents a function in IR.
@@ -150,15 +149,6 @@ class Printf extends Builtin {
  * Remember, the idea is that Geaux should have a simple "readfromfile("file")"
  * function, and the Emitter turns that into C that actually reads from the file.
  */
-/**
- * Read entire contents of a file into a string variable.
- *
- * Emitted C:
- *   { FILE *__f = fopen(<filename>, "r");
- *     fseek(__f, 0, SEEK_END); long __sz = ftell(__f); rewind(__f);
- *     <result> = malloc(__sz + 1);
- *     fread(<result>, 1, __sz, __f); (<result>)[__sz] = '\0'; fclose(__f); }
- */
 class ReadFromFile extends Builtin {
     public final IRExpr filename;
     public final Var result;
@@ -172,12 +162,6 @@ class ReadFromFile extends Builtin {
     public <T> T accept(Visitor<T> v) { return v.visitReadFromFile(this); }
 }
 
-/**
- * Write a string to a file.
- *
- * Emitted C:
- *   { FILE *__f = fopen(<filename>, "w"); fputs(<content>, __f); fclose(__f); }
- */
 class WriteToFile extends Builtin {
     public final IRExpr filename;
     public final IRExpr content;
@@ -191,12 +175,6 @@ class WriteToFile extends Builtin {
     public <T> T accept(Visitor<T> v) { return v.visitWriteToFile(this); }
 }
 
-/**
- * Read an integer from stdin.
- *
- * Emitted C:
- *   scanf("%d", &<result>);
- */
 class Input extends Builtin {
     public final Var result;
 
